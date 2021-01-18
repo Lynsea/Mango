@@ -55,11 +55,11 @@ int yylex(void);
 
 %type <assignment_operator> assignment_operator
 %type <expression> expression expression_opt struct_literal assign_expression ternary_operator_expression logic_or_expression logic_and_expression  
-equality_expression relational_expression additive_expression multiplication_expression unary_expression postfix_expression primary_expression  dic block_body annotation_if
+equality_expression relational_expression additive_expression multiplication_expression unary_expression postfix_expression primary_expression  dic block_body annotation_if oc_message_expression
 
-%type <identifier> selector selector_1 selector_2 key_work_identifier c_type_identier
+%type <identifier> selector selector_1 selector_2 key_work_identifier c_type_identier receiver message_selector
 
-%type <list> identifier_list struct_entry_list dic_entry_list  statement_list protocol_list else_if_list case_list member_definition_list
+%type <list> identifier_list struct_entry_list dic_entry_list  statement_list protocol_list else_if_list case_list member_definition_list oc_argument_list
 method_name method_name_1 method_name_2 expression_list function_param_list  c_type_identier_list
 
 %type <method_name_item> method_name_item
@@ -938,17 +938,20 @@ primary_expression: IDENTIFIER
 			}
 			| primary_expression DOT selector LP expression_list RP
 			{
-				MFExpression *expr = (__bridge_transfer MFExpression *)$1;
-				NSString *selector = (__bridge_transfer NSString *)$3;
-				MFMemberExpression *memberExpr = (MFMemberExpression *)mf_create_expression(MF_MEMBER_EXPRESSION);
-				memberExpr.expr = expr;
-				memberExpr.memberName = selector;
-				
-				MFFunctonCallExpression *funcCallExpr = (MFFunctonCallExpression *)mf_create_expression(MF_FUNCTION_CALL_EXPRESSION);
-				funcCallExpr.expr = memberExpr;
-				funcCallExpr.args = (__bridge_transfer NSArray<MFExpression *> *)$5;
-				
-				$$ = (__bridge_retained void *)funcCallExpr;
+                MFExpression *expr = (__bridge_transfer MFExpression *)$1;
+                NSString *selector = (__bridge_transfer NSString *)$3;
+                MFMemberExpression *memberExpr = (MFMemberExpression *)mf_create_expression(MF_MEMBER_EXPRESSION);
+                memberExpr.expr = expr;
+                memberExpr.memberName = selector;
+                
+                MFFunctonCallExpression *funcCallExpr = (MFFunctonCallExpression *)mf_create_expression(MF_FUNCTION_CALL_EXPRESSION);
+                funcCallExpr.expr = memberExpr;
+                
+                MFFunctonCallExpression *funcCallExpr2 = (MFFunctonCallExpression *)mf_create_expression(MF_FUNCTION_CALL_EXPRESSION);
+                funcCallExpr2.expr = funcCallExpr;
+                funcCallExpr2.args = (__bridge_transfer NSArray<MFExpression *> *)$5;
+                
+                $$ = (__bridge_retained void *)funcCallExpr2;
 			}
 			| primary_expression LP RP
 			{
@@ -1068,6 +1071,7 @@ primary_expression: IDENTIFIER
 			| dic
 			| struct_literal
 			| block_body
+            | oc_message_expression
 			;
 
 
@@ -1124,7 +1128,72 @@ block_body:  POWER type_specifier LP  RP block_statement
 				$$ = (__bridge_retained void *)expr;
 			}
 			;
+oc_message_expression
+            : LB receiver message_selector RB
+            {
+                MFExpression *expr = (__bridge_transfer MFExpression *)$2;
+                NSString *selector = (__bridge_transfer NSString *)$3;
+                MFMemberExpression *memberExpr = (MFMemberExpression *)mf_create_expression(MF_MEMBER_EXPRESSION);
+                memberExpr.expr = expr;
+                memberExpr.memberName = selector;
 
+                MFFunctonCallExpression *funcCallExpr = (MFFunctonCallExpression *)mf_create_expression(MF_FUNCTION_CALL_EXPRESSION);
+                funcCallExpr.expr = memberExpr;
+
+                $$ = (__bridge_retained void *)funcCallExpr;
+
+            }
+            | LB receiver oc_argument_list RB
+            {
+                MFExpression *expr = (__bridge_transfer MFExpression *)$2;
+                NSMutableArray *list = (__bridge_transfer NSMutableArray *)$3;
+                MFExpression *firstExpr = list.firstObject;
+                NSString *sName = firstExpr.selectorName;
+                MFMemberExpression *memberExpr = (MFMemberExpression *)mf_create_expression(MF_MEMBER_EXPRESSION);
+                memberExpr.expr = expr;
+                memberExpr.memberName = sName;
+                
+                MFFunctonCallExpression *funcCallExpr = (MFFunctonCallExpression *)mf_create_expression(MF_FUNCTION_CALL_EXPRESSION);
+                funcCallExpr.expr = memberExpr;
+                funcCallExpr.args = list;
+                $$ = (__bridge_retained void *)funcCallExpr;
+            }
+            ;
+
+receiver : primary_expression
+            ;
+oc_argument_list :selector_1 COLON assign_expression
+            {
+                NSMutableArray *list = [NSMutableArray array];
+                MFExpression *expr = (__bridge_transfer MFExpression *)$3;
+                NSString *name = (__bridge_transfer NSString *)$1;
+                name = [NSString stringWithFormat:@"%@:", name];
+
+                expr.selectorName = name;
+                [list addObject:expr];
+                $$ = (__bridge_retained void *)list;
+                
+            }
+            |oc_argument_list selector_1 COLON assign_expression
+            {
+                NSMutableArray *list = (__bridge_transfer NSMutableArray *)$1;
+                MFExpression *firstExpr = list.firstObject;
+                NSString *sName = firstExpr.selectorName ;
+                MFExpression *expr = (__bridge_transfer MFExpression *)$4;
+                NSString *name = (__bridge_transfer NSString *)$2;
+                NSString *selector = [NSString stringWithFormat:@"%@%@:", sName, name];
+                firstExpr.selectorName = selector;
+                [list addObject:expr];
+                $$ = (__bridge_retained void *)list;
+            };
+
+message_selector : selector
+            {
+                NSString *name = (__bridge_transfer NSString *)$1;
+                $$ = (__bridge_retained void *)name;
+
+            }
+            ;
 
 function_param_list: function_param
 			{
